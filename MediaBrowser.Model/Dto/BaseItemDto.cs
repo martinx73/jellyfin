@@ -163,6 +163,12 @@ namespace MediaBrowser.Model.Dto
         public string Overview { get; set; }
 
         /// <summary>
+        /// Gets or sets the Spanish overview.
+        /// </summary>
+        /// <value>The Spanish overview.</value>
+        public string OverviewEs { get; set; }
+
+        /// <summary>
         /// Gets or sets the taglines.
         /// </summary>
         /// <value>The taglines.</value>

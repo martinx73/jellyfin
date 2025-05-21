@@ -49,6 +49,8 @@ namespace MediaBrowser.Controller.Providers
 
         public bool QueriedById { get; set; }
 
+        public Dictionary<string, object> AdditionalData { get; set; }
+
         public void AddPerson(PersonInfo p)
         {
             People ??= new List<PersonInfo>();

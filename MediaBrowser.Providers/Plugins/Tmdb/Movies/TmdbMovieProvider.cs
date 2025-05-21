@@ -173,50 +173,173 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
                 return new MetadataResult<Movie>();
             }
 
-            var movieResult = await _tmdbClientManager
-                .GetMovieAsync(Convert.ToInt32(tmdbId, CultureInfo.InvariantCulture), info.MetadataLanguage, TmdbUtils.GetImageLanguagesParam(info.MetadataLanguage), cancellationToken)
+            // Define the list of languages to fetch
+            var languagesToFetch = new[] { "en", "es" };
+            // Adjust languagesToFetch based on info.MetadataLanguage to avoid redundant primary fetch if it's already "en" or "es"
+            // and ensure the primary language is fetched first.
+            if (info.MetadataLanguage.IsNormalizedEquals("es"))
+            {
+                languagesToFetch = new[] { "es", "en" };
+            }
+            else if (!info.MetadataLanguage.IsNormalizedEquals("en"))
+            {
+                // If primary is neither "en" nor "es", fetch it first, then "en", then "es".
+                // Ensure no duplicates if info.MetadataLanguage is null or empty.
+                var initialLang = string.IsNullOrEmpty(info.MetadataLanguage) ? null : info.MetadataLanguage;
+                languagesToFetch = new[] { initialLang, "en", "es" }.Where(s => !string.IsNullOrEmpty(s)).Distinct().ToArray();
+            }
+
+
+            var multilingualMovieData = await _tmdbClientManager
+                .GetMovieMultilingualAsync(Convert.ToInt32(tmdbId, CultureInfo.InvariantCulture), languagesToFetch, TmdbUtils.GetImageLanguagesParam(info.MetadataLanguage), cancellationToken)
                 .ConfigureAwait(false);
 
-            if (movieResult is null)
+            if (multilingualMovieData.Count == 0)
+            {
+                return new MetadataResult<Movie>();
+            }
+
+            TMDbLib.Objects.Movies.Movie? primaryMovieData = null;
+            string primaryLang = languagesToFetch[0]; // Default to the first requested language
+
+            // Try to get the movie data in the primary requested language
+            if (multilingualMovieData.TryGetValue(primaryLang, out var langMovieData))
+            {
+                primaryMovieData = langMovieData;
+            }
+            // Fallback logic: Try "en", then "es", then the first available if primary lang data wasn't found (e.g. primary was specific like "de" and not found)
+            else if (multilingualMovieData.TryGetValue("en", out var enMovieData))
+            {
+                primaryMovieData = enMovieData;
+                primaryLang = "en";
+            }
+            else if (multilingualMovieData.TryGetValue("es", out var esMovieData))
+            {
+                primaryMovieData = esMovieData;
+                primaryLang = "es";
+            }
+            else
+            {
+                // Fallback to the first successfully fetched language's data
+                var firstEntry = multilingualMovieData.FirstOrDefault();
+                primaryMovieData = firstEntry.Value;
+                primaryLang = firstEntry.Key;
+            }
+
+            if (primaryMovieData == null)
             {
                 return new MetadataResult<Movie>();
             }
 
             var movie = new Movie
             {
-                Name = movieResult.Title ?? movieResult.OriginalTitle,
-                OriginalTitle = movieResult.OriginalTitle,
-                Overview = movieResult.Overview?.Replace("\n\n", "\n", StringComparison.InvariantCulture),
-                Tagline = movieResult.Tagline,
-                ProductionLocations = movieResult.ProductionCountries.Select(pc => pc.Name).ToArray()
+                Name = primaryMovieData.Title ?? primaryMovieData.OriginalTitle,
+                // Overview and Tagline will be set based on primary and secondary language data below
+                ProductionLocations = primaryMovieData.ProductionCountries.Select(pc => pc.Name).ToArray()
             };
             var metadataResult = new MetadataResult<Movie>
             {
                 HasMetadata = true,
-                ResultLanguage = info.MetadataLanguage,
+                ResultLanguage = primaryLang, // Reflect the language of the primary data used
                 Item = movie
             };
 
-            movie.SetProviderId(MetadataProvider.Tmdb, tmdbId);
-            movie.TrySetProviderId(MetadataProvider.Imdb, movieResult.ImdbId);
-            if (movieResult.BelongsToCollection is not null)
+            // Set OriginalTitle based on language availability
+            if (primaryLang.IsNormalizedEquals("en") && multilingualMovieData.TryGetValue("es", out var esMovieDataForTitle))
             {
-                movie.SetProviderId(MetadataProvider.TmdbCollection, movieResult.BelongsToCollection.Id.ToString(CultureInfo.InvariantCulture));
-                movie.CollectionName = movieResult.BelongsToCollection.Name;
+                movie.OriginalTitle = esMovieDataForTitle.Title ?? esMovieDataForTitle.OriginalTitle;
+            }
+            else if (primaryLang.IsNormalizedEquals("es") && multilingualMovieData.TryGetValue("en", out var enMovieDataForTitle))
+            {
+                movie.OriginalTitle = enMovieDataForTitle.Title ?? enMovieDataForTitle.OriginalTitle;
+            }
+            else
+            {
+                // Fallback to the original title from the primary data if the other language is not available or primary is neither en/es
+                movie.OriginalTitle = primaryMovieData.OriginalTitle;
             }
 
-            movie.CommunityRating = Convert.ToSingle(movieResult.VoteAverage);
 
-            if (movieResult.Releases?.Countries is not null)
+            // Overview Handling
+            movie.Overview = primaryMovieData.Overview?.Replace("\n\n", "\n", StringComparison.InvariantCulture);
+            TMDbLib.Objects.Movies.Movie? esMovieData = null;
+            if (multilingualMovieData.TryGetValue("es", out var esDataFromDict) && esDataFromDict != primaryMovieData)
             {
-                var releases = movieResult.Releases.Countries.Where(i => !string.IsNullOrWhiteSpace(i.Certification)).ToList();
+                esMovieData = esDataFromDict;
+            }
+
+            if (esMovieData?.Overview != null && !string.IsNullOrEmpty(esMovieData.Overview))
+            {
+                var cleanedEsOverview = esMovieData.Overview.Replace("\n\n", "\n", StringComparison.InvariantCulture);
+                if (!string.IsNullOrEmpty(movie.Overview))
+                {
+                    movie.Overview += "\n[JFLANG:ES]\n" + cleanedEsOverview;
+                }
+                else
+                {
+                    // If primary overview is empty, we can either set it directly to Spanish
+                    // or prefix it to ensure DTO service parsing logic.
+                    // For now, let's assume primary is preferred and DTO handles missing primary.
+                    // For consistency of combined field, if primary is empty, Spanish effectively becomes primary if DTO logic is simple,
+                    // or use the prefix to force it into the Spanish slot.
+                    // Based on DtoService, if movie.Overview is just spanish, it will be dto.Overview.
+                    // To ensure it goes to dto.OverviewEs, we need the prefix if primary is empty.
+                    movie.Overview = "\n[JFLANG:ES]\n" + cleanedEsOverview;
+                }
+            }
+
+            // Tagline Handling
+            string primaryTagline = primaryMovieData.Tagline;
+            string? spanishTagline = null;
+            if (esMovieData?.Tagline != null && !string.IsNullOrEmpty(esMovieData.Tagline)) // esMovieData is already checked to not be primaryMovieData
+            {
+                spanishTagline = esMovieData.Tagline;
+            }
+
+            if (!string.IsNullOrEmpty(primaryTagline) && !string.IsNullOrEmpty(spanishTagline))
+            {
+                movie.Tagline = primaryTagline + "[JFLANG:ES]" + spanishTagline;
+            }
+            else if (!string.IsNullOrEmpty(spanishTagline))
+            {
+                movie.Tagline = "[JFLANG:ES]" + spanishTagline; // Ensures DTO service places it in the Spanish part
+            }
+            else
+            {
+                movie.Tagline = primaryTagline; // Can be null or empty if primaryTagline is so
+            }
+
+            // metadataResult.AdditionalData is no longer used for esMovieData
+            // Ensure metadataResult.AdditionalData dictionary is not created if not needed for other purposes later.
+            // For now, removing all related AdditionalData logic for esMovieData.
+
+            movie.SetProviderId(MetadataProvider.Tmdb, tmdbId);
+            movie.TrySetProviderId(MetadataProvider.Imdb, primaryMovieData.ImdbId);
+            if (primaryMovieData.BelongsToCollection is not null)
+            {
+                movie.SetProviderId(MetadataProvider.TmdbCollection, primaryMovieData.BelongsToCollection.Id.ToString(CultureInfo.InvariantCulture));
+                movie.CollectionName = primaryMovieData.BelongsToCollection.Name;
+            }
+
+            movie.CommunityRating = Convert.ToSingle(primaryMovieData.VoteAverage);
+
+            if (primaryMovieData.Releases?.Countries is not null)
+            {
+                var releases = primaryMovieData.Releases.Countries.Where(i => !string.IsNullOrWhiteSpace(i.Certification)).ToList();
 
                 var ourRelease = releases.FirstOrDefault(c => string.Equals(c.Iso_3166_1, info.MetadataCountryCode, StringComparison.OrdinalIgnoreCase));
+                // Use primaryLang for the country specific release if MetadataCountryCode is not available
+                var langSpecificRelease = releases.FirstOrDefault(c => string.Equals(c.Iso_3166_1, primaryLang.ToUpperInvariant(), StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(primaryLang));
                 var usRelease = releases.FirstOrDefault(c => string.Equals(c.Iso_3166_1, "US", StringComparison.OrdinalIgnoreCase));
+
 
                 if (ourRelease is not null)
                 {
                     movie.OfficialRating = TmdbUtils.BuildParentalRating(ourRelease.Iso_3166_1, ourRelease.Certification);
+                }
+                else if (langSpecificRelease is not null) // Try to get rating for the primary language country
+                {
+                    movie.OfficialRating = TmdbUtils.BuildParentalRating(langSpecificRelease.Iso_3166_1, langSpecificRelease.Certification);
                 }
                 else if (usRelease is not null)
                 {
@@ -224,32 +347,32 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
                 }
             }
 
-            movie.PremiereDate = movieResult.ReleaseDate;
-            movie.ProductionYear = movieResult.ReleaseDate?.Year;
+            movie.PremiereDate = primaryMovieData.ReleaseDate;
+            movie.ProductionYear = primaryMovieData.ReleaseDate?.Year;
 
-            if (movieResult.ProductionCompanies is not null)
+            if (primaryMovieData.ProductionCompanies is not null)
             {
-                movie.SetStudios(movieResult.ProductionCompanies.Select(c => c.Name));
+                movie.SetStudios(primaryMovieData.ProductionCompanies.Select(c => c.Name));
             }
 
-            var genres = movieResult.Genres;
+            var genres = primaryMovieData.Genres;
 
             foreach (var genre in genres.Select(g => g.Name).Trimmed())
             {
                 movie.AddGenre(genre);
             }
 
-            if (movieResult.Keywords?.Keywords is not null)
+            if (primaryMovieData.Keywords?.Keywords is not null)
             {
-                for (var i = 0; i < movieResult.Keywords.Keywords.Count; i++)
+                for (var i = 0; i < primaryMovieData.Keywords.Keywords.Count; i++)
                 {
-                    movie.AddTag(movieResult.Keywords.Keywords[i].Name);
+                    movie.AddTag(primaryMovieData.Keywords.Keywords[i].Name);
                 }
             }
 
-            if (movieResult.Credits?.Cast is not null)
+            if (primaryMovieData.Credits?.Cast is not null)
             {
-                foreach (var actor in movieResult.Credits.Cast.OrderBy(a => a.Order).Take(Plugin.Instance.Configuration.MaxCastMembers))
+                foreach (var actor in primaryMovieData.Credits.Cast.OrderBy(a => a.Order).Take(Plugin.Instance.Configuration.MaxCastMembers))
                 {
                     var personInfo = new PersonInfo
                     {
@@ -273,9 +396,9 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
                 }
             }
 
-            if (movieResult.Credits?.Crew is not null)
+            if (primaryMovieData.Credits?.Crew is not null)
             {
-                foreach (var person in movieResult.Credits.Crew)
+                foreach (var person in primaryMovieData.Credits.Crew)
                 {
                     // Normalize this
                     var type = TmdbUtils.MapCrewToPersonType(person);
@@ -307,12 +430,12 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
                 }
             }
 
-            if (movieResult.Videos?.Results is not null)
+            if (primaryMovieData.Videos?.Results is not null)
             {
                 var trailers = new List<MediaUrl>();
-                for (var i = 0; i < movieResult.Videos.Results.Count; i++)
+                for (var i = 0; i < primaryMovieData.Videos.Results.Count; i++)
                 {
-                    var video = movieResult.Videos.Results[i];
+                    var video = primaryMovieData.Videos.Results[i];
                     if (!TmdbUtils.IsTrailerType(video))
                     {
                         continue;

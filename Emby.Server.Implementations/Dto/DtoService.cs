@@ -836,7 +836,18 @@ namespace Emby.Server.Implementations.Dto
 
             if (options.ContainsField(ItemFields.Overview))
             {
-                dto.Overview = item.Overview;
+                // dto.Overview = item.Overview;
+                var overviewParts = item.Overview?.Split(new[] { "\n[JFLANG:ES]\n" }, 2, StringSplitOptions.None);
+                if (overviewParts?.Length == 2)
+                {
+                    dto.Overview = overviewParts[0];
+                    dto.OverviewEs = overviewParts[1];
+                }
+                else
+                {
+                    dto.Overview = item.Overview;
+                    // dto.OverviewEs will be null by default if not set
+                }
             }
 
             if (options.ContainsField(ItemFields.OriginalTitle))
@@ -883,12 +894,27 @@ namespace Emby.Server.Implementations.Dto
 
             if (options.ContainsField(ItemFields.Taglines))
             {
+                // if (!string.IsNullOrEmpty(item.Tagline))
+                // {
+                //    dto.Taglines = new string[] { item.Tagline };
+                // }
+                // dto.Taglines ??= Array.Empty<string>();
+                var taglinesList = new List<string>();
                 if (!string.IsNullOrEmpty(item.Tagline))
                 {
-                    dto.Taglines = new string[] { item.Tagline };
+                    var taglineParts = item.Tagline.Split(new[] { "[JFLANG:ES]" }, 2, StringSplitOptions.None);
+                    if (taglineParts.Length > 0 && !string.IsNullOrEmpty(taglineParts[0]))
+                    {
+                        taglinesList.Add(taglineParts[0].Trim()); // English tagline
+                    }
+                    if (taglineParts.Length == 2 && !string.IsNullOrEmpty(taglineParts[1]))
+                    {
+                        taglinesList.Add(taglineParts[1].Trim()); // Spanish tagline
+                    }
+                    // This case is implicitly handled: if Length is 1 and it contained separator, first part is added.
+                    // If Length is 1 and no separator, first part (whole string) is added.
                 }
-
-                dto.Taglines ??= Array.Empty<string>();
+                dto.Taglines = taglinesList.ToArray();
             }
 
             dto.Type = item.GetBaseItemKind();

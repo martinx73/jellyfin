@@ -85,6 +85,30 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
         }
 
         /// <summary>
+        /// Gets a movie from the TMDb API based on its TMDb id for multiple languages.
+        /// </summary>
+        /// <param name="tmdbId">The movie's TMDb id.</param>
+        /// <param name="languages">The list of languages to fetch movie metadata for.</param>
+        /// <param name="imageLanguages">A comma-separated list of image languages.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>A dictionary containing the TMDb movie information for each requested language, or an empty dictionary if not found for any language.</returns>
+        public async Task<Dictionary<string, Movie>> GetMovieMultilingualAsync(int tmdbId, IEnumerable<string> languages, string? imageLanguages, CancellationToken cancellationToken)
+        {
+            var results = new Dictionary<string, Movie>();
+
+            foreach (var lang in languages)
+            {
+                var movie = await GetMovieAsync(tmdbId, lang, imageLanguages, cancellationToken).ConfigureAwait(false);
+                if (movie is not null)
+                {
+                    results[lang] = movie;
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
         /// Gets a collection from the TMDb API based on its TMDb id.
         /// </summary>
         /// <param name="tmdbId">The collection's TMDb id.</param>
