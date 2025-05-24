@@ -354,5 +354,83 @@ namespace Jellyfin.Providers.Tests.Plugins.Tmdb.Movies
             Assert.AreEqual("English Overview.", result.Item.Overview); // English overview, no Spanish part
             Assert.AreEqual("English Tagline.", result.Item.Tagline);   // English tagline, no Spanish part
         }
+
+        // --- Tagline Specific Tests for TmdbMovieProvider ---
+
+        [Test]
+        public async Task GetMetadata_Tagline_EnglishAndSpanishPresent_CombinedCorrectly()
+        {
+            // Arrange
+            var info = CreateMovieInfo("en");
+            var enMovie = CreateTmdbLibMovie("Title", "Original", "Overview", "ET");
+            var esMovie = CreateTmdbLibMovie("Título", "Original", "Resumen", "ST");
+            var multilingualData = new Dictionary<string, global::TMDbLib.Objects.Movies.Movie> { { "en", enMovie }, { "es", esMovie } };
+            _mockTmdbClientManager.Setup(x => x.GetMovieMultilingualAsync(It.IsAny<int>(), It.IsAny<IEnumerable<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                                  .ReturnsAsync(multilingualData);
+
+            // Act
+            var result = await _tmdbMovieProvider.GetMetadata(info, CancellationToken.None);
+
+            // Assert
+            Assert.IsTrue(result.HasMetadata);
+            Assert.AreEqual("ET[JFLANG:ES]ST", result.Item.Tagline);
+        }
+
+        [Test]
+        public async Task GetMetadata_Tagline_SpanishOnlyPresent_FormattedCorrectly()
+        {
+            // Arrange
+            var info = CreateMovieInfo("en"); // Primary fetch lang doesn't determine tagline content if 'en' data is missing tagline
+            var enMovie = CreateTmdbLibMovie("Title", "Original", "Overview", null); // English tagline is null
+            var esMovie = CreateTmdbLibMovie("Título", "Original", "Resumen", "ST");
+            var multilingualData = new Dictionary<string, global::TMDbLib.Objects.Movies.Movie> { { "en", enMovie }, { "es", esMovie } };
+             _mockTmdbClientManager.Setup(x => x.GetMovieMultilingualAsync(It.IsAny<int>(), It.IsAny<IEnumerable<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                                  .ReturnsAsync(multilingualData);
+
+            // Act
+            var result = await _tmdbMovieProvider.GetMetadata(info, CancellationToken.None);
+
+            // Assert
+            Assert.IsTrue(result.HasMetadata);
+            Assert.AreEqual("[JFLANG:ES]ST", result.Item.Tagline);
+        }
+
+        [Test]
+        public async Task GetMetadata_Tagline_EnglishOnlyPresent_FormattedCorrectly()
+        {
+            // Arrange
+            var info = CreateMovieInfo("en");
+            var enMovie = CreateTmdbLibMovie("Title", "Original", "Overview", "ET");
+            var esMovie = CreateTmdbLibMovie("Título", "Original", "Resumen", null); // Spanish tagline is null
+            var multilingualData = new Dictionary<string, global::TMDbLib.Objects.Movies.Movie> { { "en", enMovie }, { "es", esMovie } };
+            _mockTmdbClientManager.Setup(x => x.GetMovieMultilingualAsync(It.IsAny<int>(), It.IsAny<IEnumerable<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                                  .ReturnsAsync(multilingualData);
+
+            // Act
+            var result = await _tmdbMovieProvider.GetMetadata(info, CancellationToken.None);
+
+            // Assert
+            Assert.IsTrue(result.HasMetadata);
+            Assert.AreEqual("ET", result.Item.Tagline);
+        }
+
+        [Test]
+        public async Task GetMetadata_Tagline_BothNullOrEmpty_ResultsInNullOrEmptyTagline()
+        {
+            // Arrange
+            var info = CreateMovieInfo("en");
+            var enMovie = CreateTmdbLibMovie("Title", "Original", "Overview", string.Empty); // English tagline is empty
+            var esMovie = CreateTmdbLibMovie("Título", "Original", "Resumen", null);   // Spanish tagline is null
+            var multilingualData = new Dictionary<string, global::TMDbLib.Objects.Movies.Movie> { { "en", enMovie }, { "es", esMovie } };
+            _mockTmdbClientManager.Setup(x => x.GetMovieMultilingualAsync(It.IsAny<int>(), It.IsAny<IEnumerable<string>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                                  .ReturnsAsync(multilingualData);
+
+            // Act
+            var result = await _tmdbMovieProvider.GetMetadata(info, CancellationToken.None);
+
+            // Assert
+            Assert.IsTrue(result.HasMetadata);
+            Assert.IsTrue(string.IsNullOrEmpty(result.Item.Tagline));
+        }
     }
 }

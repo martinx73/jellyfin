@@ -248,5 +248,94 @@ namespace Jellyfin.Server.Implementations.Tests.Dto
             // Assert
             CollectionAssert.AreEqual(new[] { "This is a single language tagline." }, dto.Taglines);
         }
+
+        // --- Tagline Specific Tests for DtoService ---
+
+        [Test]
+        public void AttachBasicFields_Tagline_EnglishAndSpanish_ParsesToArray()
+        {
+            // Arrange
+            var movie = new Movie { Tagline = "  ET  [JFLANG:ES]  ST  " };
+            var options = GetDefaultDtoOptions(); // Ensures ItemFields.Taglines is present
+
+            // Act
+            var dto = _dtoService.GetBaseItemDto(movie, options, null, null);
+
+            // Assert
+            CollectionAssert.AreEqual(new[] { "ET", "ST" }, dto.Taglines);
+        }
+
+        [Test]
+        public void AttachBasicFields_Tagline_SpanishOnlyWithPrefix_ParsesToArrayWithEmptyEnglish()
+        {
+            // Arrange
+            var movie = new Movie { Tagline = "[JFLANG:ES]ST " };
+            var options = GetDefaultDtoOptions();
+
+            // Act
+            var dto = _dtoService.GetBaseItemDto(movie, options, null, null);
+
+            // Assert
+            CollectionAssert.AreEqual(new[] { "", "ST" }, dto.Taglines);
+        }
+
+        [Test]
+        public void AttachBasicFields_Tagline_EnglishOnlyNoPrefix_ParsesToArrayWithEnglishOnly()
+        {
+            // Arrange
+            var movie = new Movie { Tagline = " ET " };
+            var options = GetDefaultDtoOptions();
+
+            // Act
+            var dto = _dtoService.GetBaseItemDto(movie, options, null, null);
+
+            // Assert
+            CollectionAssert.AreEqual(new[] { "ET" }, dto.Taglines);
+        }
+
+        [Test]
+        public void AttachBasicFields_Tagline_NullOrEmpty_ParsesToEmptyArray()
+        {
+            // Arrange
+            var movieNullTagline = new Movie { Tagline = null };
+            var movieEmptyTagline = new Movie { Tagline = "" };
+            var options = GetDefaultDtoOptions();
+
+            // Act
+            var dtoNull = _dtoService.GetBaseItemDto(movieNullTagline, options, null, null);
+            var dtoEmpty = _dtoService.GetBaseItemDto(movieEmptyTagline, options, null, null);
+
+            // Assert
+            Assert.IsEmpty(dtoNull.Taglines);
+            Assert.IsEmpty(dtoEmpty.Taglines);
+        }
+
+        [Test]
+        public void AttachBasicFields_Tagline_EnglishWithTrailingPrefix_ParsesToArrayWithEmptySpanish()
+        {
+            // Arrange
+            var movie = new Movie { Tagline = "ET[JFLANG:ES]" };
+            var options = GetDefaultDtoOptions();
+
+            // Act
+            var dto = _dtoService.GetBaseItemDto(movie, options, null, null);
+
+            // Assert
+            CollectionAssert.AreEqual(new[] { "ET", "" }, dto.Taglines);
+        }
+
+        [Test]
+        public void AttachBasicFields_Tagline_PrefixOnly_ParsesToArrayWithTwoEmptyStrings()
+        {
+            // Arrange
+            var movie = new Movie { Tagline = "[JFLANG:ES]" };
+            var options = GetDefaultDtoOptions();
+
+            // Act
+            var dto = _dtoService.GetBaseItemDto(movie, options, null, null);
+
+            // Assert
+            CollectionAssert.AreEqual(new[] { "", "" }, dto.Taglines);
+        }
     }
 }

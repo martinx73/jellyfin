@@ -288,25 +288,19 @@ namespace MediaBrowser.Providers.Plugins.Tmdb.Movies
                 }
             }
 
-            // Tagline Handling
-            string primaryTagline = primaryMovieData.Tagline;
-            string? spanishTagline = null;
-            if (esMovieData?.Tagline != null && !string.IsNullOrEmpty(esMovieData.Tagline)) // esMovieData is already checked to not be primaryMovieData
-            {
-                spanishTagline = esMovieData.Tagline;
-            }
+            // Tagline Handling - REVISED as per specific instructions
+            string englishTagline = multilingualMovieData.TryGetValue("en", out var enData) && enData != null ? enData.Tagline : null;
+            string spanishTagline = multilingualMovieData.TryGetValue("es", out var esData) && esData != null ? esData.Tagline : null;
 
-            if (!string.IsNullOrEmpty(primaryTagline) && !string.IsNullOrEmpty(spanishTagline))
-            {
-                movie.Tagline = primaryTagline + "[JFLANG:ES]" + spanishTagline;
-            }
-            else if (!string.IsNullOrEmpty(spanishTagline))
-            {
-                movie.Tagline = "[JFLANG:ES]" + spanishTagline; // Ensures DTO service places it in the Spanish part
-            }
-            else
-            {
-                movie.Tagline = primaryTagline; // Can be null or empty if primaryTagline is so
+            if (!string.IsNullOrEmpty(englishTagline) && !string.IsNullOrEmpty(spanishTagline)) {
+                movie.Tagline = englishTagline + "[JFLANG:ES]" + spanishTagline;
+            } else if (!string.IsNullOrEmpty(spanishTagline)) {
+                // English is empty, Spanish is present
+                movie.Tagline = "[JFLANG:ES]" + spanishTagline;
+            } else {
+                // English is present (or both empty), Spanish is empty (or both empty)
+                // This correctly assigns englishTagline if present, or null/empty if both are null/empty.
+                movie.Tagline = englishTagline;
             }
 
             // metadataResult.AdditionalData is no longer used for esMovieData

@@ -894,25 +894,31 @@ namespace Emby.Server.Implementations.Dto
 
             if (options.ContainsField(ItemFields.Taglines))
             {
-                // if (!string.IsNullOrEmpty(item.Tagline))
-                // {
-                //    dto.Taglines = new string[] { item.Tagline };
-                // }
-                // dto.Taglines ??= Array.Empty<string>();
                 var taglinesList = new List<string>();
                 if (!string.IsNullOrEmpty(item.Tagline))
                 {
+                    // Split up to 2 parts, to handle cases like "Tag1[JFLANG:ES]Tag2[JFLANG:ES]Tag3" (though provider shouldn't create this)
                     var taglineParts = item.Tagline.Split(new[] { "[JFLANG:ES]" }, 2, StringSplitOptions.None);
-                    if (taglineParts.Length > 0 && !string.IsNullOrEmpty(taglineParts[0]))
+
+                    if (item.Tagline.Contains("[JFLANG:ES]"))
                     {
-                        taglinesList.Add(taglineParts[0].Trim()); // English tagline
+                        // Separator is present
+                        taglinesList.Add(taglineParts[0].Trim()); // Add first part (could be empty if tagline starts with separator)
+                        if (taglineParts.Length == 2)
+                        {
+                            taglinesList.Add(taglineParts[1].Trim()); // Add second part (Spanish)
+                        }
+                        else
+                        {
+                            // This case implies the tagline ended with the separator, e.g., "EnglishTagline[JFLANG:ES]"
+                            taglinesList.Add(string.Empty);
+                        }
                     }
-                    if (taglineParts.Length == 2 && !string.IsNullOrEmpty(taglineParts[1]))
+                    else
                     {
-                        taglinesList.Add(taglineParts[1].Trim()); // Spanish tagline
+                        // No separator, treat the whole tagline as the first (English) entry
+                        taglinesList.Add(item.Tagline.Trim());
                     }
-                    // This case is implicitly handled: if Length is 1 and it contained separator, first part is added.
-                    // If Length is 1 and no separator, first part (whole string) is added.
                 }
                 dto.Taglines = taglinesList.ToArray();
             }
