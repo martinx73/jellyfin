@@ -63,7 +63,7 @@ namespace MediaBrowser.Providers.Plugins.Tmdb
 
             await EnsureClientConfigAsync().ConfigureAwait(false);
 
-            var extraMethods = MovieMethods.Credits | MovieMethods.Releases | MovieMethods.Images | MovieMethods.Videos;
+            var extraMethods = MovieMethods.Credits | MovieMethods.Releases | MovieMethods.Images | MovieMethods.Videos | MovieMethods.Translations;
             if (!(Plugin.Instance?.Configuration.ExcludeTagsMovies).GetValueOrDefault())
             {
                 extraMethods |= MovieMethods.Keywords;
